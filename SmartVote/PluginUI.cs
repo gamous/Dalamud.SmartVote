@@ -65,6 +65,11 @@ namespace SmartVote
                     this.configuration.Enable = enable;
                     this.configuration.Save();
                 }
+                //if (ImGui.Button("AutoOpen"))
+                //{
+                //    this.configuration.AutoOpen = !this.configuration.AutoOpen;
+                //    this.configuration.Save();
+                //}
 
                 StringBuilder stringBuilder = new StringBuilder();
                 stringBuilder.AppendLine("Smart vote will vote for you in player commendation.");
@@ -111,6 +116,7 @@ namespace SmartVote
                     this.configuration.Visible = !this.configuration.Visible;
                     this.configuration.Save();
                 }
+
 
                 Vector4 fontColor = this.configuration.FontColor;
                 if (ImGui.ColorEdit4("Font Color", ref fontColor))

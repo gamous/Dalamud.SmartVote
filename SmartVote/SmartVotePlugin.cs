@@ -7,6 +7,7 @@ using ClickLib;
 using Dalamud.Data;
 using Dalamud.Game;
 using Dalamud.Game.ClientState;
+using Dalamud.Game.ClientState.Conditions;
 using Dalamud.Game.Command;
 using Dalamud.Game.Gui;
 using Dalamud.Game.Text;
@@ -27,23 +28,14 @@ namespace SmartVote
     public class SmartVotePlugin : IDalamudPlugin
     {
         private const string CommandName = "/xvote";
-        private readonly Hook<OnSetupDelegate> addonVoteMvpOnSetupHook;
         private readonly Hook<OnEventDelegate> eventHook;
-        private readonly IntPtr groupManagerAddress;
         private readonly Configuration config;
         private readonly PluginUI ui;
-
+        public bool IsVoted=false;
         public SmartVotePlugin()
         {
-            IntPtr num = this.Scanner.ScanText("4C 8B DC 57 41 54 41 57 48 81 EC ?? ?? ?? ?? 48 8B 05 ?? ?? ?? ?? 48 33 C4 48 89 44 24 ?? 49 89 5B ??");
-            this.groupManagerAddress = this.Scanner.GetStaticAddressFromSig("48 8D 0D ?? ?? ?? ?? 44 8B E7", 0);
-            PluginLog.Information("===== SMART VOTE =====");
-            PluginLog.Information(string.Format("{0} {1:X}", "AddonVoteMvpOnSetupAddress", num.ToInt64()));
-            PluginLog.Information(string.Format("{0} {1:X}", "groupManagerAddress", this.groupManagerAddress.ToInt64()));
-            this.addonVoteMvpOnSetupHook = new Hook<OnSetupDelegate>(num, this.AddonVoteMvpOnSetupDetour);
-            this.addonVoteMvpOnSetupHook.Enable();
             if (this.Interface.GetPluginConfig() is not Configuration configuration)
-                {
+            {
                 configuration = new Configuration();
             }
 
@@ -56,6 +48,7 @@ namespace SmartVote
             {
                 HelpMessage = "/xvote: show smart vote overlay\n/xvote config: open smart vote config",
             });
+            this.Framework.Update += VoteMvpFinder;
             this.Interface.UiBuilder.Draw += this.DrawUI;
             this.Interface.UiBuilder.OpenConfigUi += () => this.DrawConfigUI();
             this.State.TerritoryChanged += this.TerritoryChanged;
@@ -79,6 +72,8 @@ namespace SmartVote
 
         [PluginService]
         public ChatGui ChatGui { get; private set; }
+        [PluginService]
+        public Dalamud.Game.ClientState.Party.PartyList PartyList { get; private set; }
 
         [PluginService]
         public CommandManager CommandManager { get; private set; }
@@ -86,15 +81,23 @@ namespace SmartVote
         [PluginService]
         public DataManager DataManager { get; private set; }
 
+        [PluginService]
+        public Dalamud.Game.ClientState.Conditions.Condition Condition { get; private set; }
+
+        [PluginService]
+        public Framework Framework { get; private set; }
+
+        [PluginService]
+        public GameGui GameGui { get; private set; }
+
         void IDisposable.Dispose()
         {
             if (this.eventHook != null)
             {
                 this.eventHook.Dispose();
             }
-
-            this.addonVoteMvpOnSetupHook.Dispose();
             this.ui.Dispose();
+            this.Framework.Update -= VoteMvpFinder;
             this.State.TerritoryChanged -= this.TerritoryChanged;
             this.ChatGui.ChatMessage -= this.Chat_OnChatMessage;
             this.CommandManager.RemoveHandler("/xvote");
@@ -170,17 +173,16 @@ namespace SmartVote
             return numList;
         }
 
-        private void TerritoryChanged(object sender, ushort e) => this.config.ResetTerritory();
+        private void TerritoryChanged(object sender, ushort e) { 
+            this.config.ResetTerritory();
+            IsVoted=false;
+        }
+
 
         private unsafe AtkComponentCheckBox* SelectPartner(List<IntPtr> playerChecks)
         {
-            if (this.groupManagerAddress == IntPtr.Zero)
-            {
-                PluginLog.Information("groupManagerAddress is null, cannot find partner.");
-                return null;
-            }
 
-            GroupManager* groupManagerAddress = (GroupManager*)(void*)this.groupManagerAddress;
+            GroupManager* groupManagerAddress = (GroupManager*)this.PartyList.GroupManagerAddress;
             string role1 = GetRole(this.DataManager.GetExcelSheet<ClassJob>().GetRow(this.State.LocalPlayer.ClassJob.Id).Role);
             PluginLog.Debug("Checking myRole:" + role1);
             List<IntPtr> numList = this.FilterRole(groupManagerAddress, playerChecks, role1);
@@ -222,19 +224,21 @@ namespace SmartVote
             return type == "partner" ? this.SelectPartner(playerChecks) : null;
         }
 
-        private unsafe void AutoVote(AddonVoteMvp* addonObj)
+        private unsafe void AutoVote(IntPtr addonObj)
         {
+            if (IsVoted) return;
+            var addonVoteMvp = ((AddonVoteMvp*)addonObj);
             List<IntPtr> playerChecks = new ()
       {
-                (IntPtr)addonObj->check1,
-                (IntPtr)addonObj->check2,
-                (IntPtr)addonObj->check3,
-                (IntPtr)addonObj->check4,
-                (IntPtr)addonObj->check5,
-                (IntPtr)addonObj->check6,
-                (IntPtr)addonObj->check7,
+                (IntPtr) addonVoteMvp->check1,
+                (IntPtr) addonVoteMvp->check2,
+                (IntPtr) addonVoteMvp->check3,
+                (IntPtr) addonVoteMvp->check4,
+                (IntPtr) addonVoteMvp->check5,
+                (IntPtr) addonVoteMvp->check6,
+                (IntPtr) addonVoteMvp->check7,
       };
-            AtkComponentButton* voteButton = addonObj->VoteButton;
+            AtkComponentButton* voteButton = addonVoteMvp->VoteButton;
             AtkComponentCheckBox* vote = this.SelectPlayerToVote(playerChecks, this.config.Mode);
             if ((IntPtr)vote == IntPtr.Zero)
             {
@@ -261,29 +265,18 @@ namespace SmartVote
 
             this.ChatGui.Print("Voting " + nameFromCheckBox);
             Click.SendClick("votemvp_button");
+            IsVoted=true;
         }
 
-        private unsafe IntPtr AddonVoteMvpOnSetupDetour(IntPtr addon, uint a2, IntPtr dataPtr)
+        private void VoteMvpFinder(Framework framework)
         {
-            PluginLog.Debug("AddonVoteMvp.OnSetup");
-            PluginLog.Debug(string.Format("{0} {1:X}", nameof(addon), addon.ToInt64()));
-            PluginLog.Debug(string.Format("{0} {1}", nameof(a2), a2));
-            PluginLog.Debug(string.Format("{0} {1:X}", nameof(dataPtr), dataPtr.ToInt64()));
-            IntPtr num = this.addonVoteMvpOnSetupHook.Original(addon, a2, dataPtr);
-            try
+            if (!this.Condition.Any()) return;
+            if (this.Condition[ConditionFlag.BoundByDuty] && !this.Condition[ConditionFlag.DutyRecorderPlayback])
             {
-                if (this.config.Enable)
-                {
-                    this.AutoVote((AddonVoteMvp*)(void*)addon);
-                }
+                var addon = this.GameGui.GetAddonByName("VoteMvp", 1);
+                if (addon == IntPtr.Zero) return;
+                if (this.config.Enable) this.AutoVote(addon);
             }
-            catch (Exception ex)
-            {
-                object[] objArray = Array.Empty<object>();
-                PluginLog.Error(ex, "Don't crash the game", objArray);
-            }
-
-            return num;
         }
 
         private void EventDetour(IntPtr a1, short a2, int a3, IntPtr a4, IntPtr a5)

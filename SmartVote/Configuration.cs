@@ -15,7 +15,7 @@ namespace SmartVote
         public int Version { get; set; }
 
         public bool Enable { get; set; } = true;
-
+        public bool AutoOpen { get; set; } = true;
         public bool Visible { get; set; } = true;
 
         public bool NoBackground { get; set; }
@@ -23,8 +23,6 @@ namespace SmartVote
         public bool Lock { get; set; }
 
         public string VoteMode { get; set; } = "partner";
-
-        public string ForceSetMvpName { get; set; }
 
         public Vector4 FontColor { get; set; } = new Vector4(1f, 1f, 0.0f, 1f);
 
@@ -34,6 +32,11 @@ namespace SmartVote
 
         public void Save() => this.pluginInterface.SavePluginConfig(this);
 
-        public void ResetTerritory() => this.ForceSetMvpName = null;
+        public string ForceSetMvpName { get; set; }
+
+        public void ResetTerritory()
+        {
+            this.ForceSetMvpName = null;
+        }
     }
 }
