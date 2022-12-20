@@ -3,9 +3,9 @@ author: Bluefissure
 punchline: 智能点赞
 description: |-
   Smart Vote the Mvp in player commendation for you.
-repo_url: https://github.com/gamous/Dalamud.SmartVote
-icon_url: https://raw.githubusercontent.com/gamous/Dalamud.SmartVote/master/Data/icon.png
-dalamud_api_level: 6
+repo_url: https://github.com/gamous/SmartVote
+icon_url: https://raw.githubusercontent.com/gamous/SmartVote/master/Data/icon.png
+dalamud_api_level: 7
 tags:
   - Vote
 category_tags: null
